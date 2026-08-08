@@ -94,7 +94,7 @@ export function renderViewport(ctx: CanvasRenderingContext2D, level: DungeonLeve
   ctx.fillRect(0, 0, cw, horizon);
   drawCeilingBeams(ctx, cw, horizon);
 
-  const depth = 4; // Sichtweite in Zellen
+  const depth = 5; // Sichtweite in Zellen
   const cx = cw / 2;
 
   // Von hinten nach vorne zeichnen; Türen und Wände blockieren die Sichtachse.
@@ -250,6 +250,23 @@ function drawWallQuad(
     ctx.lineTo(nearX, y2);
     ctx.stroke();
   }
+  ctx.globalAlpha = 1;
+  // Moosflecken und Risse für mehr Textur
+  const minX = Math.min(farX, nearX);
+  const maxX = Math.max(farX, nearX);
+  const minY = Math.min(farTop, nearTop);
+  const maxY = Math.max(farBottom, nearBottom);
+  for (let i = 0; i < 3; i++) {
+    const n = tileNoise(farX + i * 7, farTop + depth, 41 + i);
+    if (n > 0.72) {
+      const mx = minX + (maxX - minX) * tileNoise(i, depth, 43);
+      const my = minY + (maxY - minY) * tileNoise(i, depth, 47);
+      ctx.fillStyle = `rgba(60,110,60,${0.15 + (n - 0.72) * 0.6})`;
+      ctx.beginPath();
+      ctx.ellipse(mx, my, (maxX - minX) * 0.12, (maxY - minY) * 0.1, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
   ctx.restore();
 }
 
@@ -287,7 +304,7 @@ function drawStoneBricks(ctx: CanvasRenderingContext2D, x: number, y: number, w:
       ctx.lineTo(bx, ry + rowH);
       ctx.stroke();
     }
-    // Leichte Farbvariation je Stein
+    // Farbvariation, Bevel-Kanten und Moos je Stein für plastischeren Eindruck
     for (let bx = x - offset, i = 0; bx < x + w; bx += brickW, i++) {
       const n = tileNoise(tx + bx * 0.01, ty + r + i * 0.3, 7);
       if (n > 0.82) {
@@ -297,7 +314,37 @@ function drawStoneBricks(ctx: CanvasRenderingContext2D, x: number, y: number, w:
         ctx.fillStyle = `rgba(255,240,220,${0.05})`;
         ctx.fillRect(bx, ry, brickW, rowH);
       }
+      // Bevel: helle Oberkante, dunkle Unterkante je Stein (pseudo-3D-Relief)
+      ctx.fillStyle = 'rgba(255,255,255,0.06)';
+      ctx.fillRect(bx, ry, brickW, Math.max(1, rowH * 0.12));
+      ctx.fillStyle = 'rgba(0,0,0,0.18)';
+      ctx.fillRect(bx, ry + rowH - Math.max(1, rowH * 0.12), brickW, Math.max(1, rowH * 0.12));
+      // Moos auf manchen Steinen
+      const mossN = tileNoise(tx + bx * 0.02, ty - r, 13);
+      if (mossN > 0.87) {
+        ctx.fillStyle = `rgba(60,110,60,${0.25 + (mossN - 0.87) * 2})`;
+        ctx.beginPath();
+        ctx.ellipse(bx + brickW * 0.5, ry + rowH * 0.7, brickW * 0.4, rowH * 0.35, 0, 0, Math.PI * 2);
+        ctx.fill();
+      }
     }
+  }
+
+  // Risse: dünne, unregelmäßige Linien über mehrere Steinreihen
+  if (tileNoise(tx, ty, 17) > 0.6) {
+    ctx.strokeStyle = 'rgba(0,0,0,0.5)';
+    ctx.lineWidth = Math.max(1, w * 0.004);
+    const startX = x + w * (0.2 + tileNoise(tx, ty, 19) * 0.6);
+    let cxp = startX;
+    let cyp = y;
+    ctx.beginPath();
+    ctx.moveTo(cxp, cyp);
+    for (let s = 1; s <= 6; s++) {
+      cxp += (tileNoise(tx + s, ty, 23) - 0.5) * w * 0.12;
+      cyp = y + (h / 6) * s;
+      ctx.lineTo(cxp, cyp);
+    }
+    ctx.stroke();
   }
   ctx.restore();
 }
@@ -307,15 +354,47 @@ function drawFlagstones(ctx: CanvasRenderingContext2D, cw: number, horizon: numb
   ctx.beginPath();
   ctx.rect(0, horizon, cw, ch - horizon);
   ctx.clip();
-  ctx.strokeStyle = 'rgba(0,0,0,0.35)';
-  ctx.lineWidth = 1;
+
   const rows = 10;
+  const rowYs: number[] = [horizon];
   for (let i = 1; i <= rows; i++) {
     const t = i / rows;
-    const y = horizon + (ch - horizon) * (t * t); // perspektivische Verdichtung nach vorn
+    rowYs.push(horizon + (ch - horizon) * (t * t));
+  }
+
+  // Fliesen-Farbvarianz und Moosflecken je Reihe/Spalte
+  const cols = 8;
+  for (let r = 0; r < rows; r++) {
+    const y0 = rowYs[r];
+    const y1 = rowYs[r + 1];
+    const colW = cw / cols;
+    for (let c = 0; c < cols; c++) {
+      const n = tileNoise(c, r, 31);
+      if (n > 0.8) {
+        ctx.fillStyle = `rgba(70,110,80,${0.12 + (n - 0.8) * 0.6})`;
+        ctx.fillRect(c * colW, y0, colW, y1 - y0);
+      } else if (n < 0.08) {
+        ctx.fillStyle = 'rgba(0,0,0,0.15)';
+        ctx.fillRect(c * colW, y0, colW, y1 - y0);
+      }
+    }
+  }
+
+  ctx.strokeStyle = 'rgba(0,0,0,0.35)';
+  ctx.lineWidth = 1;
+  for (const y of rowYs) {
     ctx.beginPath();
     ctx.moveTo(0, y);
     ctx.lineTo(cw, y);
+    ctx.stroke();
+  }
+  // Ein paar vertikale Fugen für Fliesenraster
+  ctx.strokeStyle = 'rgba(0,0,0,0.2)';
+  for (let c = 1; c < cols; c++) {
+    const x = (cw / cols) * c;
+    ctx.beginPath();
+    ctx.moveTo(x, horizon);
+    ctx.lineTo(x, ch);
     ctx.stroke();
   }
   ctx.restore();

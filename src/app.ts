@@ -6,14 +6,14 @@ import { SPELLS } from './data/spells';
 import { getClassPortrait, getMonsterPortrait } from './data/portraits';
 import { ITEMS } from './data/items';
 import { Rng } from './core/rng';
-import { autoEquipIfBetter, createCharacter, grantXp, rollAbilities } from './core/character';
+import { autoEquipIfBetter, createCharacter, equipItem, grantXp, rollAbilities } from './core/character';
 import { generateDungeonLevel } from './core/dungeonGenerator';
 import { discoverAround, renderMinimap, renderViewport, canMove, movePosition, turnLeft, turnRight } from './render/viewport';
 import { Encounter, hasHealingPotion, type LastAction } from './core/encounter';
-import { applyDamageToCharacter } from './core/combat';
+import { applyDamageToCharacter, healCharacter, reviveCharacter } from './core/combat';
 import { deleteSave, listSaveSlots, loadGame, saveGame, saveMeta } from './core/save';
 
-type Screen = 'title' | 'roster' | 'campaignSelect' | 'game' | 'loadGame';
+type Screen = 'title' | 'roster' | 'campaignSelect' | 'game' | 'loadGame' | 'inventory';
 type CombatMode = 'menu' | 'spellMenu' | 'targetAttack' | 'targetSpellDamage' | 'targetSpellHeal';
 
 interface PendingCharacter {
@@ -61,6 +61,7 @@ export class App {
     else if (this.screen === 'campaignSelect') this.renderCampaignSelect();
     else if (this.screen === 'loadGame') this.renderLoadGame();
     else if (this.screen === 'game') this.renderGame();
+    else if (this.screen === 'inventory') this.renderInventory();
   }
 
   private portraitEl(svg: string, extraClass = ''): HTMLDivElement {
@@ -375,7 +376,14 @@ export class App {
     restBtn.textContent = 'Rasten';
     restBtn.addEventListener('click', () => this.rest());
 
-    controlsBar.append(dpad, turnPad, document.createElement('span'), restBtn);
+    const inventoryBtn = document.createElement('button');
+    inventoryBtn.textContent = '🎒 Inventar';
+    inventoryBtn.addEventListener('click', () => {
+      this.screen = 'inventory';
+      this.renderScreen();
+    });
+
+    controlsBar.append(dpad, turnPad, document.createElement('span'), inventoryBtn, restBtn);
 
     const logPanel = document.createElement('div');
     logPanel.className = 'log-panel';
@@ -397,6 +405,150 @@ export class App {
 
     this.attachKeyboardControls();
     this.draw();
+  }
+
+  // ---------------- INVENTORY / EQUIPMENT ----------------
+
+  private renderInventory() {
+    if (!this.party) return;
+    const el = document.createElement('div');
+    el.className = 'screen';
+
+    const header = document.createElement('div');
+    header.style.display = 'flex';
+    header.style.justifyContent = 'space-between';
+    header.style.alignItems = 'center';
+    header.innerHTML = `<h2>Inventar & Ausrüstung</h2><span style="color:var(--gold)">${this.party.gold} Gold</span>`;
+    el.appendChild(header);
+
+    const grid = document.createElement('div');
+    grid.className = 'roster-grid';
+
+    for (const member of this.party.members) {
+      grid.appendChild(this.buildInventoryCard(member));
+    }
+    el.appendChild(grid);
+
+    const back = document.createElement('button');
+    back.textContent = 'Zurück zum Dungeon';
+    back.style.marginTop = '1rem';
+    back.addEventListener('click', () => {
+      this.screen = 'game';
+      this.renderScreen();
+    });
+    el.appendChild(back);
+
+    this.root.appendChild(el);
+  }
+
+  private buildInventoryCard(member: Character): HTMLElement {
+    const card = document.createElement('div');
+    card.className = 'card';
+
+    const headRow = document.createElement('div');
+    headRow.style.display = 'flex';
+    headRow.style.gap = '0.6rem';
+    headRow.style.alignItems = 'center';
+    headRow.appendChild(this.portraitEl(getClassPortrait(member.classId), member.isAlive ? '' : 'defending'));
+    const headInfo = document.createElement('div');
+    headInfo.innerHTML = `
+      <strong>${member.name}</strong> (Lv ${member.level})<br/>
+      <span style="color:var(--text-dim)">${CLASSES[member.classId].name}</span><br/>
+      <span style="font-size:0.85rem">${member.isAlive ? `${member.hp}/${member.maxHp} HP` : '<span style="color:var(--danger)">Gefallen</span>'}${member.maxMana > 0 ? ` · ${member.mana}/${member.maxMana} MP` : ''} · RK ${member.armorClass}</span>
+    `;
+    headRow.appendChild(headInfo);
+    card.appendChild(headRow);
+
+    if (!member.isAlive) {
+      const reviveWrap = document.createElement('div');
+      reviveWrap.style.marginTop = '0.6rem';
+      const revivers = this.party!.members.filter(
+        (c) => c.isAlive && c.knownSpellIds.some((id) => SPELLS[id].revive)
+      );
+      if (revivers.length === 0) {
+        reviveWrap.innerHTML = `<span class="action-hint">Niemand kennt einen Wiederbelebungszauber.</span>`;
+      }
+      for (const reviver of revivers) {
+        const spellId = reviver.knownSpellIds.find((id) => SPELLS[id].revive)!;
+        const spell = SPELLS[spellId];
+        const btn = document.createElement('button');
+        btn.textContent = `${spell.name} durch ${reviver.name} (${spell.manaCost} MP)`;
+        btn.disabled = reviver.mana < spell.manaCost;
+        btn.addEventListener('click', () => {
+          reviver.mana -= spell.manaCost;
+          const hp = this.rng.dice(spell.healDice!.count, spell.healDice!.sides);
+          reviveCharacter(member, hp);
+          this.log(`${reviver.name} erweckt ${member.name} mit ${spell.name} wieder zum Leben!`);
+          this.renderScreen();
+        });
+        reviveWrap.appendChild(btn);
+      }
+      card.appendChild(reviveWrap);
+      return card;
+    }
+
+    const slotsWrap = document.createElement('div');
+    slotsWrap.style.marginTop = '0.6rem';
+    slotsWrap.style.fontSize = '0.85rem';
+    const slotLabels: Record<string, string> = { weapon: 'Waffe', offhand: 'Nebenhand', armor: 'Rüstung' };
+    slotsWrap.innerHTML = Object.entries(slotLabels)
+      .map(([slot, label]) => `${label}: <strong>${member.equipment[slot as keyof typeof member.equipment] ? ITEMS[member.equipment[slot as keyof typeof member.equipment]!].name : '—'}</strong>`)
+      .join('<br/>');
+    card.appendChild(slotsWrap);
+
+    const invWrap = document.createElement('div');
+    invWrap.style.marginTop = '0.6rem';
+    invWrap.style.display = 'flex';
+    invWrap.style.flexDirection = 'column';
+    invWrap.style.gap = '0.3rem';
+
+    if (member.inventory.length === 0) {
+      invWrap.innerHTML = `<span class="action-hint">Inventar leer.</span>`;
+    }
+
+    for (const stack of member.inventory) {
+      const item = ITEMS[stack.itemId];
+      if (!item) continue;
+      const row = document.createElement('div');
+      row.style.display = 'flex';
+      row.style.justifyContent = 'space-between';
+      row.style.alignItems = 'center';
+      row.style.gap = '0.4rem';
+      const label = document.createElement('span');
+      label.textContent = `${item.name}${stack.quantity > 1 ? ` ×${stack.quantity}` : ''}`;
+      label.title = item.description;
+      row.appendChild(label);
+
+      if (item.slot === 'weapon' || item.slot === 'offhand' || item.slot === 'armor') {
+        const equipped = member.equipment[item.slot] === stack.itemId;
+        const btn = document.createElement('button');
+        btn.textContent = equipped ? 'Ausgerüstet' : 'Ausrüsten';
+        btn.disabled = equipped;
+        btn.addEventListener('click', () => {
+          equipItem(member, stack.itemId);
+          this.log(`${member.name} rüstet ${item.name} aus.`);
+          this.renderScreen();
+        });
+        row.appendChild(btn);
+      } else if (stack.itemId === 'potion_healing') {
+        const btn = document.createElement('button');
+        btn.textContent = 'Trinken';
+        btn.addEventListener('click', () => {
+          stack.quantity -= 1;
+          member.inventory = member.inventory.filter((s) => s.quantity > 0);
+          const heal = Math.max(1, this.rng.dice(2, 4) + 2);
+          healCharacter(member, heal);
+          this.log(`${member.name} trinkt einen Heiltrank und heilt ${heal} Trefferpunkte.`);
+          this.renderScreen();
+        });
+        row.appendChild(btn);
+      }
+
+      invWrap.appendChild(row);
+    }
+    card.appendChild(invWrap);
+
+    return card;
   }
 
   private keyHandler = (e: KeyboardEvent) => {

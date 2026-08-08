@@ -142,3 +142,9 @@ export function applyDamageToCharacter(character: Character, damage: number): vo
 export function healCharacter(character: Character, amount: number): void {
   character.hp = Math.min(character.maxHp, character.hp + amount);
 }
+
+/** Belebt einen gefallenen Charakter mit einem Teil seiner Trefferpunkte wieder. */
+export function reviveCharacter(character: Character, hp: number): void {
+  character.isAlive = true;
+  character.hp = Math.max(1, Math.min(character.maxHp, hp));
+}

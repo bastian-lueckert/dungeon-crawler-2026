@@ -71,6 +71,7 @@ export interface SpellDefinition {
   damageDice?: { count: number; sides: number };
   healDice?: { count: number; sides: number };
   manaCost: number;
+  revive?: boolean;
 }
 
 // ---------- Charakter ----------

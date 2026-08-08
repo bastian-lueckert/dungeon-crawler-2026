@@ -21,6 +21,11 @@ export const SPELLS: Record<string, SpellDefinition> = {
     description: 'Gewährt der Gruppe einen Bonus auf Angriffswürfe.',
     manaCost: 4,
   },
+  raise_dead: {
+    id: 'raise_dead', name: 'Wiedererwecken', level: 3, school: 'divine',
+    description: 'Erweckt einen gefallenen Verbündeten mit einem Teil seiner Trefferpunkte zum Leben.',
+    healDice: { count: 2, sides: 6 }, manaCost: 10, revive: true,
+  },
 };
 
 export const SPELL_LIST = Object.values(SPELLS);
