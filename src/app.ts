@@ -379,10 +379,12 @@ export class App {
     turnPad.innerHTML = `<button id="turn-left">↺</button><button id="turn-right">↻</button>`;
 
     const restBtn = document.createElement('button');
+    restBtn.className = 'rest-btn';
     restBtn.textContent = 'Rasten';
     restBtn.addEventListener('click', () => this.rest());
 
     const inventoryBtn = document.createElement('button');
+    inventoryBtn.className = 'inventory-btn';
     inventoryBtn.textContent = '🎒 Inventar';
     inventoryBtn.addEventListener('click', () => {
       this.screen = 'inventory';

@@ -191,8 +191,8 @@ input, select {
   .turn-pad { grid-template-columns: repeat(2, 46px); }
   .dpad button, .turn-pad button { font-size: 1.3rem; }
 
-  .controls-bar > button:nth-of-type(1) { grid-area: inv; width: 100%; }
-  .controls-bar > button:nth-of-type(2) { grid-area: rest; width: 100%; }
+  .controls-bar .inventory-btn { grid-area: inv; width: 100%; }
+  .controls-bar .rest-btn { grid-area: rest; width: 100%; }
 
   .party-hud { gap: 0.3rem; }
   .party-member {

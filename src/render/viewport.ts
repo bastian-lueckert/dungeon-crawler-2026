@@ -1,5 +1,4 @@
 import type { DungeonLevel, Direction, DungeonTile, Vec2 } from '../core/types';
-import { getCeilingTile, getFloorTile, getWallTile } from './textures';
 
 // Blickrichtungsvektoren: 0=Nord(-y), 1=Ost(+x), 2=Süd(+y), 3=West(-x)
 const DIR_VECTORS: Vec2[] = [
@@ -48,6 +47,17 @@ function tileNoise(x: number, y: number, salt = 0): number {
   return n - Math.floor(n);
 }
 
+function mixHex(a: string, b: string, t: number): string {
+  const na = parseInt(a.slice(1), 16);
+  const nb = parseInt(b.slice(1), 16);
+  const ar = (na >> 16) & 255, ag = (na >> 8) & 255, ab = na & 255;
+  const br = (nb >> 16) & 255, bg = (nb >> 8) & 255, bb = nb & 255;
+  const r = Math.round(ar + (br - ar) * t);
+  const g = Math.round(ag + (bg - ag) * t);
+  const b2 = Math.round(ab + (bb - ab) * t);
+  return `#${((1 << 24) + (r << 16) + (g << 8) + b2).toString(16).slice(1)}`;
+}
+
 /**
  * Zeichnet eine stimmungsvolle Ego-Perspektive im Stil klassischer Dungeon-Crawler:
  * Sichttiefe mit perspektivisch verkleinerten, strukturierten Wandsegmenten, Fackeln,
@@ -58,39 +68,28 @@ export function renderViewport(ctx: CanvasRenderingContext2D, level: DungeonLeve
   const time = performance.now() / 1000;
   const theme = level.themeColor || '#5a4a34';
 
-  const wallTile = getWallTile(theme);
+  // Wand- und Bodenfarben deutlich unterscheidbar halten und leicht mit der Kampagnenfarbe einfärben.
+  const wallFrontBase = mixHex('#6a5540', theme, 0.35);
+  const wallLeftBase = mixHex('#4a3524', theme, 0.3);
+  const wallRightBase = mixHex('#3a2a1a', theme, 0.3);
+  const floorTop = mixHex('#3a4a48', theme, 0.2);
+  const floorBottom = '#0a1210';
 
   ctx.fillStyle = '#050302';
   ctx.fillRect(0, 0, cw, ch);
 
-  // Boden & Decke aus echten, gekachelten Texturbildern — bewusst kühler/grüner
-  // als die warmen Wände, damit sich der Boden klar abhebt.
+  // Boden & Decke — bewusst kühler/grüner als die warmen Wände, damit sich der Boden klar abhebt.
   const horizon = ch * 0.5;
-  const floorTile = getFloorTile(theme);
-  const floorPattern = ctx.createPattern(floorTile, 'repeat')!;
-  const floorScale = ch / 340;
-  ctx.save();
-  ctx.translate(0, horizon);
-  ctx.scale(floorScale, floorScale);
-  ctx.fillStyle = floorPattern;
-  ctx.fillRect(0, 0, cw / floorScale, (ch - horizon) / floorScale);
-  ctx.restore();
   const floorGrad = ctx.createLinearGradient(0, horizon, 0, ch);
-  floorGrad.addColorStop(0, 'rgba(0,0,0,0.1)');
-  floorGrad.addColorStop(1, 'rgba(0,0,0,0.6)');
+  floorGrad.addColorStop(0, floorTop);
+  floorGrad.addColorStop(1, floorBottom);
   ctx.fillStyle = floorGrad;
   ctx.fillRect(0, horizon, cw, ch - horizon);
+  drawFlagstones(ctx, cw, horizon, ch);
 
-  const ceilTile = getCeilingTile(theme);
-  const ceilPattern = ctx.createPattern(ceilTile, 'repeat')!;
-  ctx.save();
-  ctx.scale(floorScale, floorScale);
-  ctx.fillStyle = ceilPattern;
-  ctx.fillRect(0, 0, cw / floorScale, horizon / floorScale);
-  ctx.restore();
   const ceilGrad = ctx.createLinearGradient(0, 0, 0, horizon);
-  ceilGrad.addColorStop(0, 'rgba(0,0,0,0.75)');
-  ceilGrad.addColorStop(1, 'rgba(0,0,0,0.25)');
+  ceilGrad.addColorStop(0, '#020202');
+  ceilGrad.addColorStop(1, '#160f09');
   ctx.fillStyle = ceilGrad;
   ctx.fillRect(0, 0, cw, horizon);
   drawCeilingBeams(ctx, cw, horizon);
@@ -137,7 +136,8 @@ export function renderViewport(ctx: CanvasRenderingContext2D, level: DungeonLeve
     const hereDoor = tileAt(level, here)?.type === 'door' && d > 0;
 
     if (leftBlocked) {
-      drawTexturedWallQuad(ctx, wallTile, nextBox.left, nextBox.top, nextBox.bottom, box.left, box.top, box.bottom, d);
+      ctx.fillStyle = shadeFor(d, wallLeftBase);
+      drawWallQuad(ctx, nextBox.left, nextBox.top, nextBox.bottom, box.left, box.top, box.bottom, d);
       if (tileNoise(here.x, here.y, 1) > 0.66) {
         const tx = box.left + (box.left - nextBox.left) * 0.2;
         const ty = (box.top + box.bottom) / 2;
@@ -146,7 +146,8 @@ export function renderViewport(ctx: CanvasRenderingContext2D, level: DungeonLeve
       }
     }
     if (rightBlocked) {
-      drawTexturedWallQuad(ctx, wallTile, nextBox.right, nextBox.top, nextBox.bottom, box.right, box.top, box.bottom, d);
+      ctx.fillStyle = shadeFor(d, wallRightBase);
+      drawWallQuad(ctx, nextBox.right, nextBox.top, nextBox.bottom, box.right, box.top, box.bottom, d);
       if (tileNoise(here.x, here.y, 2) > 0.66) {
         const tx = box.right + (box.right - nextBox.right) * 0.2;
         const ty = (box.top + box.bottom) / 2;
@@ -158,11 +159,13 @@ export function renderViewport(ctx: CanvasRenderingContext2D, level: DungeonLeve
     const frontBlocked = !hereDoor && wallBetween(level, here, facing);
     if (hereDoor) {
       const doorTile = tileAt(level, here);
-      drawDoor(ctx, wallTile, box, d, !!doorTile?.doorLocked);
+      drawDoor(ctx, box, d, !!doorTile?.doorLocked);
     } else if (frontBlocked || (d === 0 && cellsAhead.length === 1)) {
-      drawTexturedRect(ctx, wallTile, box.left, box.top, box.w, box.h, d);
+      ctx.fillStyle = shadeFor(d, wallFrontBase);
+      ctx.fillRect(box.left, box.top, box.w, box.h);
       ctx.strokeStyle = 'rgba(0,0,0,0.6)';
       ctx.strokeRect(box.left, box.top, box.w, box.h);
+      drawStoneBricks(ctx, box.left, box.top, box.w, box.h, here.x, here.y);
       if (tileNoise(here.x, here.y, 3) > 0.45) {
         const tx = box.left + box.w / 2;
         const ty = box.top + box.h * 0.32;
@@ -215,6 +218,58 @@ export function renderViewport(ctx: CanvasRenderingContext2D, level: DungeonLeve
   }
 }
 
+function drawWallQuad(
+  ctx: CanvasRenderingContext2D,
+  farX: number, farTop: number, farBottom: number,
+  nearX: number, nearTop: number, nearBottom: number,
+  depth: number
+) {
+  ctx.beginPath();
+  ctx.moveTo(farX, farTop);
+  ctx.lineTo(nearX, nearTop);
+  ctx.lineTo(nearX, nearBottom);
+  ctx.lineTo(farX, farBottom);
+  ctx.closePath();
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(0,0,0,0.6)';
+  ctx.stroke();
+
+  // Grobe Steinfugen auf der Seitenwand andeuten
+  ctx.save();
+  ctx.clip();
+  ctx.strokeStyle = shadeFor(depth + 1, '#000000');
+  ctx.globalAlpha = 0.35;
+  ctx.lineWidth = 1;
+  const rows = 5;
+  for (let i = 1; i < rows; i++) {
+    const t = i / rows;
+    const y1 = farTop + (farBottom - farTop) * t;
+    const y2 = nearTop + (nearBottom - nearTop) * t;
+    ctx.beginPath();
+    ctx.moveTo(farX, y1);
+    ctx.lineTo(nearX, y2);
+    ctx.stroke();
+  }
+  ctx.globalAlpha = 1;
+  // Moosflecken und Risse für mehr Textur
+  const minX = Math.min(farX, nearX);
+  const maxX = Math.max(farX, nearX);
+  const minY = Math.min(farTop, nearTop);
+  const maxY = Math.max(farBottom, nearBottom);
+  for (let i = 0; i < 3; i++) {
+    const n = tileNoise(farX + i * 7, farTop + depth, 41 + i);
+    if (n > 0.72) {
+      const mx = minX + (maxX - minX) * tileNoise(i, depth, 43);
+      const my = minY + (maxY - minY) * tileNoise(i, depth, 47);
+      ctx.fillStyle = `rgba(60,110,60,${0.15 + (n - 0.72) * 0.6})`;
+      ctx.beginPath();
+      ctx.ellipse(mx, my, (maxX - minX) * 0.12, (maxY - minY) * 0.1, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+  ctx.restore();
+}
+
 function shadeFor(depth: number, hex: string): string {
   const factor = Math.max(0.22, 1 - depth * 0.2);
   const n = parseInt(hex.slice(1), 16);
@@ -224,52 +279,124 @@ function shadeFor(depth: number, hex: string): string {
   return `rgb(${r},${g},${b})`;
 }
 
-/** Füllt ein achsenparalleles Rechteck mit der gekachelten Wandtextur und abstandsbedingter Verdunkelung. */
-function drawTexturedRect(ctx: CanvasRenderingContext2D, tile: HTMLCanvasElement, x: number, y: number, w: number, h: number, depth: number) {
-  const pattern = ctx.createPattern(tile, 'repeat')!;
+function drawStoneBricks(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, tx: number, ty: number) {
   ctx.save();
   ctx.beginPath();
   ctx.rect(x, y, w, h);
   ctx.clip();
-  ctx.fillStyle = pattern;
-  ctx.fillRect(x, y, w, h);
-  const factor = Math.max(0.22, 1 - depth * 0.16);
-  ctx.fillStyle = `rgba(0,0,0,${1 - factor})`;
-  ctx.fillRect(x, y, w, h);
+
+  const rows = 5;
+  const rowH = h / rows;
+  ctx.strokeStyle = 'rgba(0,0,0,0.4)';
+  ctx.lineWidth = Math.max(1, w * 0.008);
+
+  for (let r = 0; r < rows; r++) {
+    const ry = y + r * rowH;
+    const offset = r % 2 === 0 ? 0 : w * 0.08;
+    const brickW = w * (0.16 + tileNoise(tx, ty + r, 5) * 0.03);
+    ctx.beginPath();
+    ctx.moveTo(x, ry);
+    ctx.lineTo(x + w, ry);
+    ctx.stroke();
+    for (let bx = x - offset; bx < x + w; bx += brickW) {
+      ctx.beginPath();
+      ctx.moveTo(bx, ry);
+      ctx.lineTo(bx, ry + rowH);
+      ctx.stroke();
+    }
+    // Farbvariation, Bevel-Kanten und Moos je Stein für plastischeren Eindruck
+    for (let bx = x - offset, i = 0; bx < x + w; bx += brickW, i++) {
+      const n = tileNoise(tx + bx * 0.01, ty + r + i * 0.3, 7);
+      if (n > 0.82) {
+        ctx.fillStyle = `rgba(0,0,0,${0.15 + n * 0.15})`;
+        ctx.fillRect(bx, ry, brickW, rowH);
+      } else if (n < 0.1) {
+        ctx.fillStyle = `rgba(255,240,220,${0.05})`;
+        ctx.fillRect(bx, ry, brickW, rowH);
+      }
+      // Bevel: helle Oberkante, dunkle Unterkante je Stein (pseudo-3D-Relief)
+      ctx.fillStyle = 'rgba(255,255,255,0.06)';
+      ctx.fillRect(bx, ry, brickW, Math.max(1, rowH * 0.12));
+      ctx.fillStyle = 'rgba(0,0,0,0.18)';
+      ctx.fillRect(bx, ry + rowH - Math.max(1, rowH * 0.12), brickW, Math.max(1, rowH * 0.12));
+      // Moos auf manchen Steinen
+      const mossN = tileNoise(tx + bx * 0.02, ty - r, 13);
+      if (mossN > 0.87) {
+        ctx.fillStyle = `rgba(60,110,60,${0.25 + (mossN - 0.87) * 2})`;
+        ctx.beginPath();
+        ctx.ellipse(bx + brickW * 0.5, ry + rowH * 0.7, brickW * 0.4, rowH * 0.35, 0, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+  }
+
+  // Risse: dünne, unregelmäßige Linien über mehrere Steinreihen
+  if (tileNoise(tx, ty, 17) > 0.6) {
+    ctx.strokeStyle = 'rgba(0,0,0,0.5)';
+    ctx.lineWidth = Math.max(1, w * 0.004);
+    const startX = x + w * (0.2 + tileNoise(tx, ty, 19) * 0.6);
+    let cxp = startX;
+    let cyp = y;
+    ctx.beginPath();
+    ctx.moveTo(cxp, cyp);
+    for (let s = 1; s <= 6; s++) {
+      cxp += (tileNoise(tx + s, ty, 23) - 0.5) * w * 0.12;
+      cyp = y + (h / 6) * s;
+      ctx.lineTo(cxp, cyp);
+    }
+    ctx.stroke();
+  }
   ctx.restore();
 }
 
-/** Zeichnet ein perspektivisches Seitenwand-Trapez, gefüllt mit der gekachelten Wandtextur. */
-function drawTexturedWallQuad(
-  ctx: CanvasRenderingContext2D,
-  tile: HTMLCanvasElement,
-  farX: number, farTop: number, farBottom: number,
-  nearX: number, nearTop: number, nearBottom: number,
-  depth: number
-) {
-  const pattern = ctx.createPattern(tile, 'repeat')!;
+function drawFlagstones(ctx: CanvasRenderingContext2D, cw: number, horizon: number, ch: number) {
   ctx.save();
   ctx.beginPath();
-  ctx.moveTo(farX, farTop);
-  ctx.lineTo(nearX, nearTop);
-  ctx.lineTo(nearX, nearBottom);
-  ctx.lineTo(farX, farBottom);
-  ctx.closePath();
+  ctx.rect(0, horizon, cw, ch - horizon);
   ctx.clip();
 
-  const minX = Math.min(farX, nearX);
-  const maxX = Math.max(farX, nearX);
-  const minY = Math.min(farTop, nearTop);
-  const maxY = Math.max(farBottom, nearBottom);
-  ctx.fillStyle = pattern;
-  ctx.fillRect(minX, minY, maxX - minX, maxY - minY);
+  const rows = 10;
+  const rowYs: number[] = [horizon];
+  for (let i = 1; i <= rows; i++) {
+    const t = i / rows;
+    rowYs.push(horizon + (ch - horizon) * (t * t));
+  }
 
-  const factor = Math.max(0.22, 1 - depth * 0.16);
-  ctx.fillStyle = `rgba(0,0,0,${1 - factor})`;
-  ctx.fillRect(minX, minY, maxX - minX, maxY - minY);
+  // Fliesen-Farbvarianz und Moosflecken je Reihe/Spalte
+  const cols = 8;
+  for (let r = 0; r < rows; r++) {
+    const y0 = rowYs[r];
+    const y1 = rowYs[r + 1];
+    const colW = cw / cols;
+    for (let c = 0; c < cols; c++) {
+      const n = tileNoise(c, r, 31);
+      if (n > 0.8) {
+        ctx.fillStyle = `rgba(70,110,80,${0.12 + (n - 0.8) * 0.6})`;
+        ctx.fillRect(c * colW, y0, colW, y1 - y0);
+      } else if (n < 0.08) {
+        ctx.fillStyle = 'rgba(0,0,0,0.15)';
+        ctx.fillRect(c * colW, y0, colW, y1 - y0);
+      }
+    }
+  }
 
-  ctx.strokeStyle = 'rgba(0,0,0,0.6)';
-  ctx.stroke();
+  ctx.strokeStyle = 'rgba(0,0,0,0.35)';
+  ctx.lineWidth = 1;
+  for (const y of rowYs) {
+    ctx.beginPath();
+    ctx.moveTo(0, y);
+    ctx.lineTo(cw, y);
+    ctx.stroke();
+  }
+  // Ein paar vertikale Fugen für Fliesenraster
+  ctx.strokeStyle = 'rgba(0,0,0,0.2)';
+  for (let c = 1; c < cols; c++) {
+    const x = (cw / cols) * c;
+    ctx.beginPath();
+    ctx.moveTo(x, horizon);
+    ctx.lineTo(x, ch);
+    ctx.stroke();
+  }
   ctx.restore();
 }
 
@@ -293,10 +420,13 @@ interface Box {
   left: number; right: number; top: number; bottom: number; w: number; h: number;
 }
 
-function drawDoor(ctx: CanvasRenderingContext2D, wallTile: HTMLCanvasElement, box: Box, depth: number, locked: boolean) {
-  drawTexturedRect(ctx, wallTile, box.left, box.top, box.w, box.h, depth);
+function drawDoor(ctx: CanvasRenderingContext2D, box: Box, depth: number, locked: boolean) {
+  const frameColor = shadeFor(depth, '#4a3524');
+  ctx.fillStyle = frameColor;
+  ctx.fillRect(box.left, box.top, box.w, box.h);
   ctx.strokeStyle = 'rgba(0,0,0,0.6)';
   ctx.strokeRect(box.left, box.top, box.w, box.h);
+  drawStoneBricks(ctx, box.left, box.top, box.w, box.h, box.left, box.top);
 
   // Türblatt mittig, mit Bogenrahmen
   const doorW = box.w * 0.6;
