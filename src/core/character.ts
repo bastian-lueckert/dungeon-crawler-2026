@@ -16,10 +16,12 @@ export function recomputeArmorClass(character: Character): void {
   character.armorClass = cls.baseArmorClass + abilityModifier(character.abilities.dex) + bonus;
 }
 
-/** Rüstet einen Gegenstand aus dem Inventar in seinem passenden Slot aus (nur Waffe/Nebenhand/Rüstung). */
+const EQUIPPABLE_SLOTS = ['weapon', 'offhand', 'armor', 'accessory', 'head'] as const;
+
+/** Rüstet einen Gegenstand aus dem Inventar in seinem passenden Slot aus (Waffe/Nebenhand/Rüstung/Accessoire/Kopf). */
 export function equipItem(character: Character, itemId: string): void {
   const item = ITEMS[itemId];
-  if (!item || (item.slot !== 'weapon' && item.slot !== 'offhand' && item.slot !== 'armor')) return;
+  if (!item || !(EQUIPPABLE_SLOTS as readonly string[]).includes(item.slot)) return;
   character.equipment[item.slot] = itemId;
   recomputeArmorClass(character);
 }
@@ -34,7 +36,7 @@ function itemScore(itemId: string): number {
 /** Rüstet einen neu gefundenen Gegenstand automatisch aus, falls der Slot leer ist oder der Fund besser ist. */
 export function autoEquipIfBetter(character: Character, itemId: string): boolean {
   const item = ITEMS[itemId];
-  if (!item || (item.slot !== 'weapon' && item.slot !== 'offhand' && item.slot !== 'armor')) return false;
+  if (!item || !(EQUIPPABLE_SLOTS as readonly string[]).includes(item.slot)) return false;
   const current = character.equipment[item.slot];
   if (!current || itemScore(itemId) > itemScore(current)) {
     equipItem(character, itemId);

@@ -61,6 +61,62 @@ export const ITEMS: Record<string, ItemDefinition> = {
     id: 'rusty_key', name: 'Rostiger Schlüssel', description: 'Passt in ein altes Türschloss irgendwo in dieser Ebene.',
     slot: 'misc', value: 0, weight: 0.1, stackable: true,
   },
+
+  // ---- Monstertrophäen: Beutestücke, die sich verkaufen lassen ----
+  rat_tail: {
+    id: 'rat_tail', name: 'Rattenschwanz', description: 'Ein Beweis für einen erlegten Nager. Bei Händlern ein paar Münzen wert.',
+    slot: 'misc', value: 2, weight: 0.1, stackable: true,
+  },
+  kobold_tooth: {
+    id: 'kobold_tooth', name: 'Koboldzahn', description: 'Ein scharfer Zahn, den mancher Sammler zu schätzen weiß.',
+    slot: 'misc', value: 3, weight: 0.1, stackable: true,
+  },
+  bat_wing: {
+    id: 'bat_wing', name: 'Fledermausflügel', description: 'Zutat für allerlei zwielichtige Tränke.',
+    slot: 'misc', value: 3, weight: 0.1, stackable: true,
+  },
+  goblin_ear: {
+    id: 'goblin_ear', name: 'Goblinohr', description: 'Manche Wachposten zahlen für jedes erlegte Goblin-Paar.',
+    slot: 'misc', value: 4, weight: 0.1, stackable: true,
+  },
+  bone_fragment: {
+    id: 'bone_fragment', name: 'Knochensplitter', description: 'Überrest eines Untoten, nützlich für Nekromanten und Alchemisten.',
+    slot: 'misc', value: 3, weight: 0.1, stackable: true,
+  },
+  spider_silk: {
+    id: 'spider_silk', name: 'Spinnenseide', description: 'Reißfestes Gespinst, begehrt bei Webern und Rüstungsschmieden.',
+    slot: 'misc', value: 6, weight: 0.2, stackable: true,
+  },
+  orc_tusk: {
+    id: 'orc_tusk', name: 'Ork-Stoßzahn', description: 'Ein Trophäenzahn, geschätzt unter Söldnern.',
+    slot: 'misc', value: 6, weight: 0.2, stackable: true,
+  },
+  troll_hide: {
+    id: 'troll_hide', name: 'Trollhaut', description: 'Zähes, sich selbst heilendes Leder von großem Wert.',
+    slot: 'misc', value: 14, weight: 1, stackable: true,
+  },
+  cultist_talisman: {
+    id: 'cultist_talisman', name: 'Kult-Talisman', description: 'Ein unheiliges Amulett, das dunkle Sammler teuer bezahlen.',
+    slot: 'misc', value: 12, weight: 0.2, stackable: true,
+  },
+  dragon_scale: {
+    id: 'dragon_scale', name: 'Drachenschuppe', description: 'Hart wie Stahl und schillernd — ein wahrer Schatz.',
+    slot: 'misc', value: 60, weight: 0.5, stackable: true,
+  },
+
+  // ---- Schmuckstücke: ausrüstbar im Accessoire-Slot ----
+  ring_protection: {
+    id: 'ring_protection', name: 'Ring des Schutzes', description: 'Ein schlichter Ring, der eine schützende Aura webt.',
+    slot: 'accessory', armorBonus: 1, value: 20, weight: 0.1,
+  },
+  amulet_ward: {
+    id: 'amulet_ward', name: 'Amulett der Abwehr', description: 'Ein altes Amulett, das Angriffe abschwächt.',
+    slot: 'accessory', armorBonus: 2, value: 40, weight: 0.2,
+  },
+  dragonscale_pendant: {
+    id: 'dragonscale_pendant', name: 'Drachenschuppen-Anhänger', description: 'Aus einer echten Drachenschuppe gefertigt, bietet er außergewöhnlichen Schutz.',
+    slot: 'accessory', armorBonus: 3, value: 80, weight: 0.3,
+  },
 };
 
 export const ITEM_LIST = Object.values(ITEMS);

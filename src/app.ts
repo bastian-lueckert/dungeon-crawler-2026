@@ -6,7 +6,7 @@ import { SPELLS } from './data/spells';
 import { getClassPortrait, getMonsterPortrait } from './data/portraits';
 import { ITEMS } from './data/items';
 import { Rng } from './core/rng';
-import { autoEquipIfBetter, createCharacter, equipItem, grantXp, rollAbilities } from './core/character';
+import { autoEquipIfBetter, createCharacter, equipItem, grantXp, recomputeArmorClass, rollAbilities } from './core/character';
 import { generateDungeonLevel } from './core/dungeonGenerator';
 import { discoverAround, renderMinimap, renderViewport, canMove, movePosition, turnLeft, turnRight } from './render/viewport';
 import { Encounter, hasHealingPotion, type LastAction } from './core/encounter';
@@ -441,6 +441,16 @@ export class App {
     this.root.appendChild(el);
   }
 
+  /** Entfernt einen Gegenstand aus der Ausrüstung, falls er nicht mehr im Inventar vorhanden ist (nach Verkauf/Weitergabe). */
+  private unequipIfMissing(character: Character, itemId: string) {
+    const stillHasItem = character.inventory.some((s) => s.itemId === itemId);
+    if (stillHasItem) return;
+    for (const slot of ['weapon', 'offhand', 'armor', 'accessory', 'head'] as const) {
+      if (character.equipment[slot] === itemId) delete character.equipment[slot];
+    }
+    recomputeArmorClass(character);
+  }
+
   private buildInventoryCard(member: Character): HTMLElement {
     const card = document.createElement('div');
     card.className = 'card';
@@ -490,7 +500,9 @@ export class App {
     const slotsWrap = document.createElement('div');
     slotsWrap.style.marginTop = '0.6rem';
     slotsWrap.style.fontSize = '0.85rem';
-    const slotLabels: Record<string, string> = { weapon: 'Waffe', offhand: 'Nebenhand', armor: 'Rüstung' };
+    const slotLabels: Record<string, string> = {
+      weapon: 'Waffe', offhand: 'Nebenhand', armor: 'Rüstung', accessory: 'Accessoire', head: 'Kopf',
+    };
     slotsWrap.innerHTML = Object.entries(slotLabels)
       .map(([slot, label]) => `${label}: <strong>${member.equipment[slot as keyof typeof member.equipment] ? ITEMS[member.equipment[slot as keyof typeof member.equipment]!].name : '—'}</strong>`)
       .join('<br/>');
@@ -506,6 +518,9 @@ export class App {
       invWrap.innerHTML = `<span class="action-hint">Inventar leer.</span>`;
     }
 
+    const otherAliveMembers = this.party!.members.filter((c) => c.isAlive && c.id !== member.id);
+    const equippableSlots = new Set(['weapon', 'offhand', 'armor', 'accessory', 'head']);
+
     for (const stack of member.inventory) {
       const item = ITEMS[stack.itemId];
       if (!item) continue;
@@ -514,13 +529,19 @@ export class App {
       row.style.justifyContent = 'space-between';
       row.style.alignItems = 'center';
       row.style.gap = '0.4rem';
+      row.style.flexWrap = 'wrap';
       const label = document.createElement('span');
       label.textContent = `${item.name}${stack.quantity > 1 ? ` ×${stack.quantity}` : ''}`;
       label.title = item.description;
       row.appendChild(label);
 
-      if (item.slot === 'weapon' || item.slot === 'offhand' || item.slot === 'armor') {
-        const equipped = member.equipment[item.slot] === stack.itemId;
+      const actions = document.createElement('div');
+      actions.style.display = 'flex';
+      actions.style.gap = '0.3rem';
+      actions.style.alignItems = 'center';
+
+      if (equippableSlots.has(item.slot)) {
+        const equipped = member.equipment[item.slot as 'weapon' | 'offhand' | 'armor' | 'accessory' | 'head'] === stack.itemId;
         const btn = document.createElement('button');
         btn.textContent = equipped ? 'Ausgerüstet' : 'Ausrüsten';
         btn.disabled = equipped;
@@ -529,7 +550,7 @@ export class App {
           this.log(`${member.name} rüstet ${item.name} aus.`);
           this.renderScreen();
         });
-        row.appendChild(btn);
+        actions.appendChild(btn);
       } else if (stack.itemId === 'potion_healing') {
         const btn = document.createElement('button');
         btn.textContent = 'Trinken';
@@ -541,9 +562,49 @@ export class App {
           this.log(`${member.name} trinkt einen Heiltrank und heilt ${heal} Trefferpunkte.`);
           this.renderScreen();
         });
-        row.appendChild(btn);
+        actions.appendChild(btn);
       }
 
+      if (item.value > 0) {
+        const sellBtn = document.createElement('button');
+        sellBtn.textContent = `Verkaufen (${item.value}G)`;
+        sellBtn.addEventListener('click', () => {
+          stack.quantity -= 1;
+          member.inventory = member.inventory.filter((s) => s.quantity > 0);
+          this.unequipIfMissing(member, stack.itemId);
+          this.party!.gold += item.value;
+          this.log(`${member.name} verkauft ${item.name} für ${item.value} Gold.`);
+          this.renderScreen();
+        });
+        actions.appendChild(sellBtn);
+      }
+
+      if (otherAliveMembers.length > 0) {
+        const select = document.createElement('select');
+        for (const other of otherAliveMembers) {
+          const opt = document.createElement('option');
+          opt.value = other.id;
+          opt.textContent = other.name;
+          select.appendChild(opt);
+        }
+        const giveBtn = document.createElement('button');
+        giveBtn.textContent = 'Weitergeben';
+        giveBtn.addEventListener('click', () => {
+          const target = this.party!.members.find((c) => c.id === select.value);
+          if (!target) return;
+          stack.quantity -= 1;
+          member.inventory = member.inventory.filter((s) => s.quantity > 0);
+          this.unequipIfMissing(member, stack.itemId);
+          const targetStack = target.inventory.find((s) => s.itemId === stack.itemId);
+          if (targetStack && item.stackable) targetStack.quantity += 1;
+          else target.inventory.push({ itemId: stack.itemId, quantity: 1 });
+          this.log(`${member.name} gibt ${item.name} an ${target.name} weiter.`);
+          this.renderScreen();
+        });
+        actions.append(select, giveBtn);
+      }
+
+      row.appendChild(actions);
       invWrap.appendChild(row);
     }
     card.appendChild(invWrap);
@@ -697,12 +758,17 @@ export class App {
     }
   }
 
-  private grantLootFollowUp(character: Character, itemId: string) {
+  private grantLootFollowUp(character: Character, itemId: string): boolean {
     const item = ITEMS[itemId];
-    if (!item) return;
-    if ((item.slot === 'weapon' || item.slot === 'offhand') && autoEquipIfBetter(character, itemId)) {
+    if (!item) return false;
+    if (
+      (item.slot === 'weapon' || item.slot === 'offhand' || item.slot === 'armor' || item.slot === 'accessory') &&
+      autoEquipIfBetter(character, itemId)
+    ) {
       this.log(`${character.name} rüstet ${item.name} aus.`);
+      return true;
     }
+    return false;
   }
 
   private openChest(chest: ChestSpawn) {
@@ -1062,16 +1128,31 @@ export class App {
     if (victory) {
       let totalXp = 0;
       let totalGold = 0;
+      const drops: string[] = [];
       for (const m of this.encounter.monsters) {
         const def = MONSTERS[m.defId];
         totalXp += def.xpReward;
         totalGold += this.rng.dice(def.goldReward.count, def.goldReward.sides);
+        if (def.dropItemIds && def.dropItemIds.length > 0 && this.rng.chance(def.dropChance ?? 0.4)) {
+          drops.push(this.rng.pick(def.dropItemIds));
+        }
       }
       this.party.gold += totalGold;
       const aliveMembers = this.party.members.filter((m) => m.isAlive);
       const xpShare = aliveMembers.length > 0 ? Math.floor(totalXp / aliveMembers.length) : 0;
       for (const m of aliveMembers) grantXp(m, xpShare);
       this.log(`Sieg! +${totalXp} EP, +${totalGold} Gold.`);
+
+      // Beute wird reihum auf die überlebenden Gruppenmitglieder verteilt.
+      if (drops.length > 0 && aliveMembers.length > 0) {
+        drops.forEach((itemId, i) => {
+          const receiver = aliveMembers[i % aliveMembers.length];
+          receiver.inventory.push({ itemId, quantity: 1 });
+          const item = ITEMS[itemId];
+          this.log(`Beute: ${receiver.name} erhält ${item.name}.`);
+          this.grantLootFollowUp(receiver, itemId);
+        });
+      }
       this.encounter = null;
       document.querySelector('.combat-overlay')?.remove();
       this.renderScreen();

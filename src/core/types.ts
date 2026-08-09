@@ -188,6 +188,8 @@ export interface MonsterDefinition {
   xpReward: number;
   goldReward: { count: number; sides: number };
   description: string;
+  dropItemIds?: string[];
+  dropChance?: number;
 }
 
 export interface MonsterInstance {
