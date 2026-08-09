@@ -49,8 +49,14 @@ export class App {
     requestAnimationFrame(this.animationLoop);
   }
 
-  private animationLoop = () => {
-    if (this.screen === 'game' && !this.encounter) this.draw();
+  private lastDrawTime = 0;
+
+  private animationLoop = (time: number) => {
+    // Auf ~30fps drosseln (Fackelflackern bleibt flüssig, spart aber deutlich CPU/GPU auf Mobilgeräten).
+    if (this.screen === 'game' && !this.encounter && time - this.lastDrawTime >= 33) {
+      this.lastDrawTime = time;
+      this.draw();
+    }
     requestAnimationFrame(this.animationLoop);
   };
 
@@ -343,8 +349,8 @@ export class App {
     mainCanvas.height = 500;
     const minimap = document.createElement('canvas');
     minimap.className = 'minimap-canvas';
-    minimap.width = 150;
-    minimap.height = 150;
+    minimap.width = 220;
+    minimap.height = 220;
     viewportWrap.append(mainCanvas, minimap);
     this.mainCanvas = mainCanvas;
     this.minimapCanvas = minimap;
@@ -662,8 +668,23 @@ export class App {
     }
   }
 
+  /** Passt die Pixelgröße eines Canvas an seine tatsächliche Anzeigegröße an (z.B. hochkant auf dem Handy), statt das Bild zu verzerren. */
+  private syncCanvasSize(canvas: HTMLCanvasElement) {
+    const rect = canvas.getBoundingClientRect();
+    if (rect.width === 0 || rect.height === 0) return;
+    const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
+    const w = Math.max(1, Math.round(rect.width * dpr));
+    const h = Math.max(1, Math.round(rect.height * dpr));
+    if (canvas.width !== w || canvas.height !== h) {
+      canvas.width = w;
+      canvas.height = h;
+    }
+  }
+
   private draw() {
     if (!this.level || !this.party || !this.mainCanvas || !this.minimapCanvas) return;
+    this.syncCanvasSize(this.mainCanvas);
+    this.syncCanvasSize(this.minimapCanvas);
     const ctx = this.mainCanvas.getContext('2d')!;
     renderViewport(ctx, this.level, this.party.position, this.party.facing);
     const mctx = this.minimapCanvas.getContext('2d')!;
